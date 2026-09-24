@@ -1,0 +1,13 @@
+# dev-режим: встроенная БД H2, HTTP без TLS, hostname не проверяется.
+# Только для локальной разработки — данные живут внутри контейнера.
+name: keycloak-dev
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: kcadmin
+      KEYCLOAK_ADMIN_PASSWORD: kcadmin
+    ports:
+      - "127.0.0.1:8080:8080"

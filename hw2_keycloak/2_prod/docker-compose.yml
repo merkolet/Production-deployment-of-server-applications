@@ -1,0 +1,78 @@
+name: keycloak-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    logging: *logging
+
+  keycloak:
+    build: .
+    restart: unless-stopped
+    environment:
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в .env}
+      KC_HOSTNAME: localhost
+      # TLS не настраиваем: в проде его обычно терминирует reverse-proxy перед Keycloak,
+      # а здесь порт открыт только на 127.0.0.1 — поэтому разрешаем HTTP
+      # и не заставляем Keycloak генерировать ссылки https://
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KEYCLOAK_ADMIN: kcadmin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?задайте KEYCLOAK_ADMIN_PASSWORD в .env}
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - backend
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      # в образе нет curl/wget — шлём HTTP-запрос средствами bash (/dev/tcp)
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    logging: *logging
+
+networks:
+  backend:
+
+volumes:
+  pgdata:
